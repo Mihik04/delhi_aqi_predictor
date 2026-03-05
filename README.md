@@ -3,7 +3,7 @@
 Live hyperlocal Air Quality Index prediction across 14 NCR monitoring stations.
 
 ## Live Demo
-https://delhiaqipredictor0107.streamlit.app/ ← update after Streamlit deployment
+https://delhiaqipredictor0107.streamlit.app/ 
 
 ## Features
 - Live pollution readings via OpenAQ API
