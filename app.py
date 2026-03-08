@@ -164,12 +164,12 @@ station_info = {
 
 def get_calibration(agency, month):
     table = {
-        "DPCC":  [([ 12,1,2],0.65),([ 10,11],0.80),([3,4,5],0.55),([6,7,8,9],0.70)],
-        "CPCB":  [([ 12,1,2],0.80),([ 10,11],0.90),([3,4,5],0.75),([6,7,8,9],0.85)],
-        "IMD":   [([ 12,1,2],0.88),([ 10,11],0.95),([3,4,5],0.85),([6,7,8,9],0.90)],
-        "HSPCB": [([ 12,1,2],0.85),([ 10,11],0.92),([3,4,5],0.85),([6,7,8,9],0.88)],
-        "UPPCB": [([ 12,1,2],0.82),([ 10,11],0.90),([3,4,5],0.80),([6,7,8,9],0.85)],
-        "IITM":  [([ 12,1,2],0.80),([ 10,11],0.90),([3,4,5],0.75),([6,7,8,9],0.85)],
+        "DPCC":  [([12,1,2],0.65),([10,11],0.80),([3,4,5],0.55),([6,7,8,9],0.70)],
+        "CPCB":  [([12,1,2],0.80),([10,11],0.90),([3,4,5],0.75),([6,7,8,9],0.85)],
+        "IMD":   [([12,1,2],0.88),([10,11],0.95),([3,4,5],0.85),([6,7,8,9],0.90)],
+        "HSPCB": [([12,1,2],0.85),([10,11],0.92),([3,4,5],0.85),([6,7,8,9],0.88)],
+        "UPPCB": [([12,1,2],0.82),([10,11],0.90),([3,4,5],0.80),([6,7,8,9],0.85)],
+        "IITM":  [([12,1,2],0.80),([10,11],0.90),([3,4,5],0.75),([6,7,8,9],0.85)],
     }
     for months, val in table.get(agency, table["CPCB"]):
         if month in months:
@@ -191,7 +191,7 @@ PLOT = dict(
     margin=dict(l=40, r=20, t=30, b=40)
 )
 
-# ─── HOME ────────────────────────────────────────────────────────────────────
+# ─── HOME ─────────────────────────────────────────────────────────────────────
 if page == "Home":
     st.markdown("## Delhi Air Quality Predictor")
     st.markdown(
@@ -240,7 +240,7 @@ if page == "Home":
         use_container_width=True
     )
 
-# ─── PREDICTOR ───────────────────────────────────────────────────────────────
+# ─── PREDICTOR ────────────────────────────────────────────────────────────────
 elif page == "Predictor":
     st.markdown("## AQI Predictor")
     st.markdown(
@@ -261,6 +261,7 @@ elif page == "Predictor":
                 agency      = info["agency"]
                 api_key     = os.getenv("OPENAQ_API_KEY")
 
+                # ── Step 1: fetch sensors ──────────────────────────────────
                 res     = requests.get(
                     f"https://api.openaq.org/v3/locations/{location_id}/sensors",
                     headers={"X-API-Key": api_key, "accept": "application/json"}
@@ -276,6 +277,8 @@ elif page == "Predictor":
                             sensor_ids[param]  = sensor["id"]
 
                 if len(live_values) >= 3:
+
+                    # ── Step 2: fetch historical readings ──────────────────
                     historical = {}
                     for param, sid in sensor_ids.items():
                         h = requests.get(
@@ -286,21 +289,35 @@ elif page == "Predictor":
                         if "results" in h:
                             historical[param] = [r["value"] for r in h["results"] if r["value"] > 0]
 
+                    # ── Step 3: fetch weather (OUTSIDE the for loop) ───────
+                    now = datetime.now()
                     wj = requests.get(
                         "https://api.open-meteo.com/v1/forecast",
                         params={
-                            "latitude": lat, "longitude": lon,
-                            "current": ["temperature_2m","relative_humidity_2m",
-                                        "wind_speed_10m","wind_direction_10m",
-                                        "precipitation","surface_pressure"],
-                            "hourly": ["boundary_layer_height"],
-                            "timezone": "Asia/Kolkata", "forecast_days": 1
+                            "latitude": lat,
+                            "longitude": lon,
+                            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,surface_pressure",
+                            "hourly": "boundary_layer_height",
+                            "timezone": "Asia/Kolkata",
+                            "forecast_days": 1
                         }
                     ).json()
-                    weather = wj["current"]
-                    now     = datetime.now()
-                    bl      = wj["hourly"]["boundary_layer_height"][now.hour]
 
+                    current = wj.get("current", {})
+                    weather = {
+                        "temperature_2m":      current.get("temperature_2m", 28),
+                        "relative_humidity_2m":current.get("relative_humidity_2m", 50),
+                        "wind_speed_10m":       current.get("wind_speed_10m", 10),
+                        "wind_direction_10m":   current.get("wind_direction_10m", 180),
+                        "precipitation":        current.get("precipitation", 0),
+                        "surface_pressure":     current.get("surface_pressure", 990),
+                    }
+                    try:
+                        bl = wj["hourly"]["boundary_layer_height"][now.hour]
+                    except:
+                        bl = 800
+
+                    # ── Show live readings ─────────────────────────────────
                     st.markdown("<div class='section-label'>Live Sensor Readings</div>", unsafe_allow_html=True)
                     c1,c2,c3,c4,c5 = st.columns(5)
                     c1.metric("PM2.5", f"{live_values.get('pm25',0):.1f}" if 'pm25' in live_values else "—")
@@ -316,53 +333,59 @@ elif page == "Predictor":
                     w3.metric("Wind Speed",     f"{weather['wind_speed_10m']} km/h")
                     w4.metric("Boundary Layer", f"{bl:.0f} m")
 
-                    def get_lag(p,n):
-                        v = historical.get(p,[])
-                        return v[n] if len(v)>n else live_values.get(p,0)
-                    def get_roll(p,n):
-                        v = historical.get(p,[])
-                        s = v[:n] if len(v)>=n else v
-                        return np.mean(s) if s else live_values.get(p,0)
+                    # ── Build features ─────────────────────────────────────
+                    def get_lag(p, n):
+                        v = historical.get(p, [])
+                        return v[n] if len(v) > n else live_values.get(p, 0)
+                    def get_roll(p, n):
+                        v = historical.get(p, [])
+                        s = v[:n] if len(v) >= n else v
+                        return np.mean(s) if s else live_values.get(p, 0)
 
-                    pm25=live_values.get('pm25',80); pm10=live_values.get('pm10',150)
-                    no2=live_values.get('no2',40);   co=live_values.get('co',1.0)
-                    o3=live_values.get('o3',50)
-                    hour=now.hour; month=now.month
+                    pm25 = live_values.get('pm25', 80)
+                    pm10 = live_values.get('pm10', 150)
+                    no2  = live_values.get('no2', 40)
+                    co   = live_values.get('co', 1.0)
+                    o3   = live_values.get('o3', 50)
+                    hour  = now.hour
+                    month = now.month
 
                     inp = pd.DataFrame([{
-                        'hour':hour,'day_of_week':now.weekday(),'month':month,
-                        'year':now.year,'day_of_year':now.timetuple().tm_yday,
+                        'hour':hour, 'day_of_week':now.weekday(), 'month':month,
+                        'year':now.year, 'day_of_year':now.timetuple().tm_yday,
                         'is_weekend':1 if now.weekday()>=5 else 0,
-                        'is_peak_traffic':1 if(8<=hour<=10 or 17<=hour<=20)else 0,
+                        'is_peak_traffic':1 if (8<=hour<=10 or 17<=hour<=20) else 0,
                         'is_monsoon':1 if 6<=month<=9 else 0,
-                        'is_winter':1 if month in[12,1,2]else 0,
-                        'is_stubble_season':1 if month in[10,11]else 0,
+                        'is_winter':1 if month in [12,1,2] else 0,
+                        'is_stubble_season':1 if month in [10,11] else 0,
                         'is_summer':1 if 3<=month<=5 else 0,
-                        'is_diwali':0,'is_holi':0,'is_dussehra':0,
+                        'is_diwali':0, 'is_holi':0, 'is_dussehra':0,
                         'temperature_2m':weather['temperature_2m'],
                         'relative_humidity_2m':weather['relative_humidity_2m'],
                         'wind_speed_10m':weather['wind_speed_10m'],
-                        'wind_direction_10m':weather.get('wind_direction_10m',180),
-                        'precipitation':weather.get('precipitation',0),
-                        'surface_pressure':weather.get('surface_pressure',990),
+                        'wind_direction_10m':weather['wind_direction_10m'],
+                        'precipitation':weather['precipitation'],
+                        'surface_pressure':weather['surface_pressure'],
                         'boundary_layer_height':bl,
-                        'wind_dispersion':weather['wind_speed_10m']*bl,
-                        'co':co,'no2':no2,'o3':o3,'pm10':pm10,'pm25':pm25,
+                        'wind_dispersion':weather['wind_speed_10m'] * bl,
+                        'co':co, 'no2':no2, 'o3':o3, 'pm10':pm10, 'pm25':pm25,
                         'pm25_lag1':get_lag('pm25',1),'pm25_lag2':get_lag('pm25',2),'pm25_lag3':get_lag('pm25',3),
                         'pm10_lag1':get_lag('pm10',1),'pm10_lag2':get_lag('pm10',2),'pm10_lag3':get_lag('pm10',3),
-                        'no2_lag1':get_lag('no2',1),'no2_lag2':get_lag('no2',2),'no2_lag3':get_lag('no2',3),
-                        'co_lag1':get_lag('co',1),'co_lag2':get_lag('co',2),'co_lag3':get_lag('co',3),
-                        'o3_lag1':get_lag('o3',1),'o3_lag2':get_lag('o3',2),'o3_lag3':get_lag('o3',3),
-                        'pm25_roll6':get_roll('pm25',6),'pm25_roll24':get_roll('pm25',24),
-                        'pm10_roll6':get_roll('pm10',6),'pm10_roll24':get_roll('pm10',24),
-                        'no2_roll6':get_roll('no2',6),'no2_roll24':get_roll('no2',24),
-                        'co_roll6':get_roll('co',6),'co_roll24':get_roll('co',24),
-                        'o3_roll6':get_roll('o3',6),'o3_roll24':get_roll('o3',24),
+                        'no2_lag1': get_lag('no2',1), 'no2_lag2': get_lag('no2',2), 'no2_lag3': get_lag('no2',3),
+                        'co_lag1':  get_lag('co',1),  'co_lag2':  get_lag('co',2),  'co_lag3':  get_lag('co',3),
+                        'o3_lag1':  get_lag('o3',1),  'o3_lag2':  get_lag('o3',2),  'o3_lag3':  get_lag('o3',3),
+                        'pm25_roll6':get_roll('pm25',6),  'pm25_roll24':get_roll('pm25',24),
+                        'pm10_roll6':get_roll('pm10',6),  'pm10_roll24':get_roll('pm10',24),
+                        'no2_roll6': get_roll('no2',6),   'no2_roll24': get_roll('no2',24),
+                        'co_roll6':  get_roll('co',6),    'co_roll24':  get_roll('co',24),
+                        'o3_roll6':  get_roll('o3',6),    'o3_roll24':  get_roll('o3',24),
                     }])
 
+                    # ── Predict ────────────────────────────────────────────
                     raw  = model.predict(inp[feature_cols])[0]
                     pred = raw * get_calibration(agency, month)
-                    # K-Means cluster prediction
+
+                    # ── K-Means cluster ────────────────────────────────────
                     try:
                         cluster_features = np.array([[
                             pm25, pm10, no2, co, o3,
@@ -373,19 +396,15 @@ elif page == "Predictor":
                             weather['relative_humidity_2m']
                         ]])
                         cluster_scaled = scaler.transform(cluster_features)
-                        cluster_id = kmeans.predict(cluster_scaled)[0]
-                        cluster_names = {0: "Moderate", 1: "Clean", 2: "Severe", 3: "High"}
-                        cluster_label = cluster_names.get(cluster_id, "Unknown")
-                        cluster_colors = {
-                            "Clean": "#4caf50",
-                            "Moderate": "#ffeb3b", 
-                            "High": "#ff9800",
-                            "Severe": "#f44336"
-                        }
-                        cluster_color = cluster_colors.get(cluster_label, "#888")
+                        cluster_id     = kmeans.predict(cluster_scaled)[0]
+                        cluster_names  = {0:"Moderate", 1:"Clean", 2:"Severe", 3:"High"}
+                        cluster_label  = cluster_names.get(cluster_id, "Unknown")
+                        cluster_colors = {"Clean":"#4caf50","Moderate":"#ffeb3b","High":"#ff9800","Severe":"#f44336"}
+                        cluster_color  = cluster_colors.get(cluster_label, "#888")
                     except:
                         cluster_label = "Unknown"
                         cluster_color = "#888"
+
                     cat, color, advice = aqi_meta(pred)
 
                     st.markdown("<div class='section-label'>Prediction</div>", unsafe_allow_html=True)
@@ -408,7 +427,7 @@ elif page == "Predictor":
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# ─── STATION MAP ─────────────────────────────────────────────────────────────
+# ─── STATION MAP ──────────────────────────────────────────────────────────────
 elif page == "Station Map":
     st.markdown("## Monitoring Stations")
     st.markdown(
@@ -441,7 +460,7 @@ elif page == "Station Map":
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# ─── ANALYSIS ────────────────────────────────────────────────────────────────
+# ─── ANALYSIS ─────────────────────────────────────────────────────────────────
 elif page == "Analysis":
     st.markdown("## Pollution Analysis")
 
