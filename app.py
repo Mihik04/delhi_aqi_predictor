@@ -139,7 +139,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(
         "<div style='font-size:0.7rem;color:#3a3a3a;line-height:1.8'>"
-        "Random Forest · R² 0.79<br>14 stations · Live data<br>"
+        "Random Forest · R² 0.81<br>14 stations · Live data<br>"
         "OpenAQ + Open-Meteo"
         "</div>",
         unsafe_allow_html=True
@@ -204,7 +204,7 @@ if page == "Home":
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Training Rows", "47,672")
     c2.metric("Stations",      "14")
-    c3.metric("Model R²",      "0.79")
+    c3.metric("Model R²",      "0.81")
     c4.metric("Parameters",    "5")
 
     st.markdown("<div class='section-label'>Model Pipeline</div>", unsafe_allow_html=True)
